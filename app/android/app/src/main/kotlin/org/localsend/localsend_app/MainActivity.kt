@@ -44,7 +44,38 @@ class MainActivity : FlutterActivity() {
     private val pendingShareIntents = mutableListOf<Intent>()
     private var shareIntentReady = false
 
+    private fun isSafeUri(uri: Uri): Boolean = when (uri.scheme) {
+        "content" -> true
+        "file" -> uri.path?.startsWith("/data/") == false
+        else -> false
+    }
+
+    private fun isShareIntentSafe(intent: Intent): Boolean {
+        if (intent.action == Intent.ACTION_SEND) {
+            val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            return uri == null || isSafeUri(uri)
+        } else if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            val uriList = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+            if (uriList.isNullOrEmpty()) return true
+            for (uri in uriList) {
+                if (!isSafeUri(uri)) {
+                    return false
+                }
+            }
+            return true
+        }
+        // For other intent actions or if EXTRA_STREAM is not present, consider safe by default for this check
+        return true
+    }
+
     override fun onNewIntent(intent: Intent) {
+        val action = intent.action
+        if (action == Intent.ACTION_SEND || action == Intent.ACTION_SEND_MULTIPLE) {
+            if (!isShareIntentSafe(intent)) {
+                return // Reject the intent
+            }
+        }
+
         if (!shareIntentReady && (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE)) {
             pendingShareIntents.add(intent)
             return
@@ -57,6 +88,12 @@ class MainActivity : FlutterActivity() {
         val pending = pendingShareIntents.toList()
         pendingShareIntents.clear()
         for (intent in pending) {
+            val action = intent.action
+            if (action == Intent.ACTION_SEND || action == Intent.ACTION_SEND_MULTIPLE) {
+                if (!isShareIntentSafe(intent)) {
+                    continue // Skip this unsafe intent
+                }
+            }
             super.onNewIntent(intent)
         }
     }
